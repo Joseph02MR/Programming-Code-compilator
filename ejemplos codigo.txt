@@ -1,0 +1,111 @@
+//variables globales
+variable_1 : int = 123;
+var2 : float = 3.1416;
+var2_a : double = 3.141591234;
+varAux : string = "cadena de texto";
+varAux_2 : char = 'a';
+
+
+function main () : int{
+    var1 : float = 3.1416 * 23.1;
+    var5 : bool = true;
+
+    var5 = false;
+    cad : string = "cadena no vacia";
+    cad_n : string = null;
+
+
+    if(var5 ||var5 != false & var5 == true){
+        var5 = false;
+    } 
+    else {
+        var5 = true;
+    }
+
+    switch(varAux_2){
+        case 'a': 
+            variable_1 = variable_1 + 1;
+            break;
+        case 'b':
+            variable_1 = variable_1 - 1;
+            break;
+        default:
+            variable_1 = 0;
+    }
+
+    for (counter: int in 1..10) {
+            print("jajaja" + counter);
+            if(counter == 2) {continue;}
+    }
+
+        for (counter: byte in 1...10){
+            print("jajaja" + counter);
+        }
+
+        counter : int = 0;
+        while (counter < 10){
+            counter = counter + 1;
+        }
+
+        do{
+            counter = counter - 1;
+        }
+        while (counter >= 0)
+
+}
+
+function suma_enteros (a: int, b: int) : int{
+    return a + b;
+}
+
+function resta_enteros (a: int, b: int) : int{
+    resultado : int = a - b;
+    return resultado;
+}
+
+
+    OPERADORES
+    = asignación
+
+    operadores aríméticos
+    + suma
+    - resta
+    * multiplicación
+    / división
+    % módulo
+    ^ exponenciación
+
+    compuestos 
+    +=      *
+    -=      *
+    *=      *
+    /=      *
+    .. rango inclusivo
+    ... rango exclusivo *
+
+    operadores en cadenas
+    + concatenación
+
+    operadores lógicos
+    ! negación
+    & and lógico
+    | or lógico
+    < menor qué
+    > mayor qué
+
+    == igualdad
+    != desigualdad
+    >= mayor o igual qué
+    <= menor o igual qué
+
+    ?: if ternario  *
+    && and binario  *
+    || or binario   *
+    # xor binario   *
+    << recorrido izquierda  *
+    >> recorrido derecha    *
+
+    NOTAS Y DEFINCIONES
+
+    //    comentario de linea
+    /* */ comentario de bloque
