@@ -3,58 +3,11 @@
 #include <string.h>
 #include <ctype.h>
 #include <limits.h>
+#include "structs.h"
 
 #define false 0
 #define true 1
 #define TILDE 96
-
-
-//estructuras y "metodos"
-
-	//entrada en la tabla de simbolos
-struct Tupla_tabla {
-	int id;
-	char tipo[10];
-	char valor[SHRT_MAX];
-	char t_dato[10]; //funciones y variables
-	int valor_var; //variables
-};
-
-struct Tupla_tabla *crear_tupla (/*int iden,*/ char type[10], char val[SHRT_MAX]){
-	struct Tupla_tabla *nueva = malloc(sizeof(struct Tupla_tabla));
-	/*nueva->id = iden;*/
-	strcpy(nueva->tipo, type);
-	strcpy(nueva->valor, val);
-	strcpy(nueva->t_dato, "");
-	nueva->valor_var = 0;
-	return nueva;
-}
-
-//tabla de simbolos
-struct Tabla_s {
-	struct Tupla_tabla *atributos[1024];
-	int tupla_cnt;
-};
-
-/*funcion que agrega tupla a la tabla de simbolos y retorna id de la tupla (evita valores 0)
-	verifica también que no se ingrese una tupla con mismo tipo y valor de una existente
-*/
-int agregar_token (struct Tabla_s *tabla, struct Tupla_tabla *tupla){
-	int token_id = 0;
-	if(tabla->tupla_cnt > 0){
-		for(int i = 0; i < tabla->tupla_cnt; i++){
-			if( strcmp(tupla->tipo, tabla->atributos[i]->tipo)==0 && strcmp(tupla->valor, tabla->atributos[i]->valor)==0){
-				token_id = tabla->atributos[i]->id;
-				return token_id;
-			} 
-		}
-	}
-	tupla->id = tabla->tupla_cnt+1;
-	tabla->atributos[tabla->tupla_cnt] = tupla;
-	token_id = tabla->atributos[tabla->tupla_cnt]->id;
-	tabla->tupla_cnt++;
-	return token_id;
-}
 
 //prototipos
 FILE *abrir_archivo (char name[255]);
@@ -72,8 +25,12 @@ char *parsear_tokens(char *tokens, struct Tabla_s *tabla);
 int eval_sentencia(char buffer[][6], int buffer_size, struct Tabla_s *tabla); 
 int eval_token_type(char *buffer);
 char *get_token_type(char *buffer);
-char *get_token_data_type(char *buffer, struct Tabla_s *tabla);
+char *get_token_value(char *buffer, struct Tabla_s *tabla);
 int get_token_id(char *buffer);
+
+char *eval_expr(char buffer[CHAR_MAX][5], int buffer_ptr, struct Tabla_s *tabla);
+int eval_pres(char *buffer, struct Tabla_s *tabla);
+char *procesar_expr(char *expr, struct Tabla_s *tabla);
 
 int eval_buffer(char buffer[], struct Tabla_s *tabla); 
 int eval_sim(char actual, char proximo, int buffer_no_vacio, char anterior, char pos_anterior);
@@ -107,18 +64,22 @@ int main (int argc, char** argv){
 	char *codigo = leer_archivo(archivo);
 	printf("%s\n",codigo);
 	char *tokenizado = tokenizar_cod(codigo, &T_GLOBAL);
+	if(tokenizado == NULL) return 1;
 	
-	for(int i = 0; i < T_GLOBAL.tupla_cnt; i++){
-		printf("\n%u %s %s",T_GLOBAL.atributos[i]->id,
-			T_GLOBAL.atributos[i]->tipo,T_GLOBAL.atributos[i]->valor);
-	}
 	printf("\n%s\n",tokenizado);
 	
 	//análisis sintáctico/semántico
 	char *analizado = parsear_tokens(tokenizado, &T_GLOBAL);
+	//if(analizado == NULL) return 1;
 	//resto del codigo...
-	free(tokenizado);
-	free(codigo);	
+	
+	printf("\nTABLA DE SIMBOLOS FINAL");
+	printf("\n%3s %3s %8s %5s %3s %s", "ID", "TT", "TOK VAL", "DAT T", "VV", "EXPRESION");
+	for(int i = 0; i < T_GLOBAL.tupla_cnt; i++){
+		printf("\n%3i %3s %8s %5s %3i %s",T_GLOBAL.atributos[i]->id,
+			T_GLOBAL.atributos[i]->tipo,T_GLOBAL.atributos[i]->valor,
+			T_GLOBAL.atributos[i]->t_dato,T_GLOBAL.atributos[i]->valor_var,T_GLOBAL.atributos[i]->expr);
+	}	
 	return 0;
 }
 
@@ -141,7 +102,7 @@ char *leer_archivo(FILE* archivo){
 	unsigned long tam = ftell(archivo);
 	rewind(archivo);
 	
-	char *contenido = (char*) malloc(tam);
+	char *contenido = malloc(tam * sizeof(char));
 	int cont_aux = 0;
 	int is_comment = false;
 
@@ -177,7 +138,7 @@ int validar_char(char caracter){
 
 //convierte el texto plano en cadenas separadas por tildes eliminando "blanks" extra
 char *procesar_entrada(char *entrada, unsigned long tam_entrada){
-	char *copia = malloc(tam_entrada);
+	char *copia = malloc(tam_entrada * sizeof(char));
 	int is_blank = false;
 	int is_string = false;
 	int printable = false;
@@ -212,7 +173,7 @@ char *procesar_entrada(char *entrada, unsigned long tam_entrada){
 	return copia;	
 } //despues de este metodo solo se permiten espacios o caracteres de escape dentro de comillas (strings)
 
-char *tokenizar_cod(char codigo[], struct Tabla_s *tabla){
+char *tokenizar_cod(char *codigo, struct Tabla_s *tabla){
 	int i = 0;
 	int is_end = false;
 	int is_string = false;
@@ -225,7 +186,7 @@ char *tokenizar_cod(char codigo[], struct Tabla_s *tabla){
 	
 	char buffer[SHRT_MAX] = "";
 	char buffer_op[6] = "";
-	char *salida = malloc(strlen(codigo)*2);
+	char *salida = malloc(strlen(codigo)*3 *sizeof(char));
 	salida[0] = '\0';
 	
 	
@@ -286,6 +247,7 @@ char *tokenizar_cod(char codigo[], struct Tabla_s *tabla){
 		}
 		i++;
 	}
+	free(codigo);
 	return salida;
 }
 
@@ -438,9 +400,10 @@ char* convertir_op(int op_ptr){
 	}
 }
  
+ //recibe el id de los nuevas entradas en la tabla y las imprime en forma de token en la cadena de salida
 void actualizar_salida(char *salida, int token_id, struct Tabla_s *tabla, char delim){
-	if(token_id){
-		char aux[12] = "";
+	char aux[12] = "";
+	if(token_id){	
 		for(int i = 0; i < tabla->tupla_cnt; i++){
 			if(tabla->atributos[i]->id == token_id){
 				snprintf(aux,sizeof(aux),"%s%u",tabla->atributos[i]->tipo,tabla->atributos[i]->id);
@@ -451,11 +414,20 @@ void actualizar_salida(char *salida, int token_id, struct Tabla_s *tabla, char d
 		snprintf(straux,sizeof(straux),"%c",TILDE);
 		strcat(salida,straux); 
 	}
-	else{
+	else {
 		char straux[8] = "";
 		if(delim != TILDE) {
 			snprintf(straux,sizeof(straux),"%s%c",convertir_delim(delim),TILDE);
 			strcat(salida,straux);
+		}
+	}
+	if(strlen(aux) > 0){
+		if(strcmp(get_token_type(aux),"OP") == 0){
+			char straux[8] = "";
+			if(strchr(DELIM,delim) != NULL && delim != TILDE) {
+				snprintf(straux,sizeof(straux),"%s%c",convertir_delim(delim),TILDE);
+				strcat(salida,straux);
+			}
 		}
 	}
 	return;
@@ -473,6 +445,7 @@ char *convertir_delim(char delim){
 	}
 }
 
+//se leen los tokens hasta formar sentencias y se evalua que sean sintácticamente correctas
 char *parsear_tokens(char *tokens, struct Tabla_s *tabla){
 	char copia[SHRT_MAX] = "";
 	strcpy(copia, tokens);
@@ -496,7 +469,8 @@ char *parsear_tokens(char *tokens, struct Tabla_s *tabla){
     	token = strtok_r(NULL, "`", &context);
     	i++;
 	}
-	return tokens;
+	free(tokens);
+	return NULL; //?
 }
 
 //se evalua que tipo de sentencia es y se escoge la regla sintáctica que se va a evaluar
@@ -507,40 +481,51 @@ int eval_sentencia(char buffer[][6], int buffer_size, struct Tabla_s *tabla){
 	return eval_dec_as(buffer, buffer_size,tabla);
 }
 
+//automata para evaluar cadenas de asignación/declaración de variables
 int eval_dec_as(char buffer[][6], int buffer_size, struct Tabla_s *tabla){
+	//printf("abuba");
 	int status = 1;
 	int id = -1;
-	char var_type[10] = "";
+	char var_type[5] = "";
+	char var_type_aux[5] = "";
 	int var_id = 0;
 	int token_type = -1;
 	int initial = 0;
+	int is_expr = false;
+	char expr_buffer[CHAR_MAX][5];
+	int expr_ptr = 0;
 	
 	for(int i = 0; i < buffer_size; i++){  
 		id = -1;
+		
 		token_type = eval_token_type(buffer[i]);
-		//printf("\n%i %i %i", i+1, token_type, status);
 		if(status == 1 && token_type == 2){
 			id = get_token_id(buffer[i]);
 			if(strcmp(tabla->atributos[id-1]->t_dato,"") == 0){
-				printf("\nERROR: Variable %s no inicializada", tabla->atributos[id-1]->valor); //evaluación semántica
+				printf("\nERROR: Variable %s no inicializada", 
+					tabla->atributos[id-1]->valor); //evaluación semántica
 				break;
 			}
 			var_id = id;
 			status = 2;
 			initial = 2;
+			
 		}
 		else if(status == 1 && token_type == 3){
-			strcpy(var_type,get_token_data_type(buffer[i], tabla));
+			strcpy(var_type,get_token_value(buffer[i], tabla));
 			status = 3;
 			initial = 3;
+			
 		} 
 		else if(status == 3 && token_type == 1){
 			id = get_token_id(buffer[i]);
 			if(strcmp(tabla->atributos[id-1]->valor,"TYP") != 0){
-				printf("\nERROR: Operador %s no valido en este contexto", tabla->atributos[id-1]->valor);
+				printf("\nERROR: Operador %s no valido en este contexto", 
+					tabla->atributos[id-1]->valor);
 				break;
 			}
 			status = 4;
+			
 		}
 		else if(status == 4 && token_type == 2){
   			id = get_token_id(buffer[i]);
@@ -548,33 +533,118 @@ int eval_dec_as(char buffer[][6], int buffer_size, struct Tabla_s *tabla){
   			//actualizar variable con tipo de dato 
   			strcpy(tabla->atributos[id-1]->t_dato,var_type); 
 			status = 5;
+			
 		}
 		else if((status == 2 || status == 5) && token_type == 1){
 			id = get_token_id(buffer[i]);
 			if(strcmp(tabla->atributos[id-1]->valor,"AS") != 0){
-				printf("\nERROR: Operador %s no valido en este contexto", tabla->atributos[id-1]->valor);
+				printf("\nERROR: Operador %s no valido en este contexto", 
+					tabla->atributos[id-1]->valor);
 				break;
 			}
 			status = 6;
+			
 		}
-		else if(status == 6 && token_type == 4){
+		else if(status == 6 && (token_type == 4 || token_type == 2)){
 			//se compara el tipo de dato del token y de la variable en la sentencia
 			id = get_token_id(buffer[i]);
-			char const_type[10] = "";
-			strcpy(const_type,get_token_type(buffer[i]));
-			if(strcmp(tabla->atributos[var_id-1]->t_dato,const_type) != 0){		
-				printf("\nERROR: Inconsistencia en tipos de dato: %s y %s", tabla->atributos[var_id-1]->t_dato,const_type);
-				break;
+			if(token_type == 2){
+				if(strcmp(tabla->atributos[id-1]->t_dato,"") == 0){
+					printf("\nERROR: Variable %s no inicializada", 
+						tabla->atributos[id-1]->valor); //evaluación semántica
+					break;
+				}
+				strcpy(var_type_aux,tabla->atributos[id-1]->t_dato);
+				if(strcmp(tabla->atributos[var_id-1]->t_dato,var_type_aux) != 0){
+					printf("\nERROR: Inconsistencia en tipos de dato: %s y %s", 
+						tabla->atributos[var_id-1]->t_dato,var_type_aux);
+					break;
+				}
+			} else{
+				char const_type[10] = "";
+				strcpy(const_type,get_token_type(buffer[i]));
+				if(strcmp(tabla->atributos[var_id-1]->t_dato,const_type) != 0){		
+					printf("\nERROR: Inconsistencia en tipos de dato: %s y %s", 
+						tabla->atributos[var_id-1]->t_dato,const_type);
+					break;
+				}	
 			}
-			//se guarda id de la constante en la entrada de la variable.
+			//se guarda id de la constante o id en la entrada de la variable.
 			tabla->atributos[var_id-1]->valor_var = id; 
+			strcpy(expr_buffer[expr_ptr++],buffer[i]);
 			status = 7;
+			
+		}
+		else if(status == 6 && token_type == 5){
+			strcpy(expr_buffer[expr_ptr++],buffer[i]);
+			is_expr = true;
+			
+		}
+		else if(status == 7 && token_type == 5){
+			strcpy(expr_buffer[expr_ptr++],buffer[i]);
+			is_expr = true;
+			
 		}
 		else if(status == 7 && token_type == 7){
+			if(is_expr) {
+				char *expr = eval_expr(expr_buffer, expr_ptr, tabla);
+				if(expr == NULL) return false;
+				strcpy(tabla->atributos[var_id-1]->expr,expr);
+				tabla->atributos[var_id-1]->valor_var = 0;
+				free(expr);
+				is_expr=false;
+			} 
 			if(initial == 3) status = 4;
 			else status = 1;
+			
 		}
-		else if((status == 5 || status == 7) && token_type == 6) status = 8;
+		else if(status == 7 && token_type == 1){
+			is_expr = true;
+			strcpy(expr_buffer[expr_ptr++],buffer[i]);
+			status = 9;
+			
+		}
+		else if(status == 9 && token_type == 5) {
+			strcpy(expr_buffer[expr_ptr++],buffer[i]);
+		}
+		else if(status == 9 && (token_type == 4 || token_type == 2)){
+			id = get_token_id(buffer[i]);
+			if(token_type == 2){
+				if(strcmp(tabla->atributos[id-1]->t_dato,"") == 0){
+					printf("\nERROR: Variable %s no inicializada", 
+						tabla->atributos[id-1]->valor); //evaluación semántica
+					break;
+				}
+				strcpy(var_type_aux,tabla->atributos[id-1]->t_dato);
+				if(strcmp(tabla->atributos[var_id-1]->t_dato,var_type_aux) != 0){
+					printf("\nERROR: Inconsistencia en tipos de dato: %s y %s", 
+						tabla->atributos[var_id-1]->t_dato,var_type_aux);
+					break;
+				}
+			} else{
+				char const_type[10] = "";
+				strcpy(const_type,get_token_type(buffer[i]));
+				if(strcmp(tabla->atributos[var_id-1]->t_dato,const_type) != 0){		
+					printf("\nERROR: Inconsistencia en tipos de dato: %s y %s", 
+						tabla->atributos[var_id-1]->t_dato,const_type);
+					break;
+				}	
+			}
+			strcpy(expr_buffer[expr_ptr++],buffer[i]);
+			status = 7;
+			
+		}
+		else if((status == 5 || status == 7) && token_type == 6) {
+			if(is_expr){
+				char *expr = eval_expr(expr_buffer, expr_ptr, tabla);
+				if(expr == NULL) return false;
+				strcpy(tabla->atributos[var_id-1]->expr,expr);
+				tabla->atributos[var_id-1]->valor_var = 0;
+				free(expr);
+				is_expr = false;
+			}
+			status = 8;
+		}
 		else break;
 	}
 	if(status == 8) return true;
@@ -583,13 +653,15 @@ int eval_dec_as(char buffer[][6], int buffer_size, struct Tabla_s *tabla){
 
 //verifica el tipo de token que es y retorna un valor entero segun la clasificación
 int eval_token_type(char *buffer){
+	
 	char ty_buffer[3] = "";
 	strcpy(ty_buffer,get_token_type(buffer));
 	
 	if(strcmp(ty_buffer,"OP") == 0) return 1;
 	else if(strcmp(ty_buffer,"ID") == 0) return 2;
 	else if(strcmp(ty_buffer,"KW") == 0) return 3;
-	else if(strcmp(ty_buffer,"IN") == 0 || strcmp(ty_buffer,"FL") == 0 || strcmp(ty_buffer,"CH") == 0 || strcmp(ty_buffer,"ST") == 0) return 4;
+	else if(strcmp(ty_buffer,"IN") == 0 || strcmp(ty_buffer,"FL") == 0 
+		|| strcmp(ty_buffer,"CH") == 0 || strcmp(ty_buffer,"ST") == 0) return 4;
 	else if(strcmp(ty_buffer,"PO") == 0 || strcmp(ty_buffer,"PC") == 0) return 5;
 	else if(strcmp(ty_buffer,"SC") == 0) return 6;
 	else if(strcmp(ty_buffer,"CO") == 0) return 7;
@@ -598,7 +670,9 @@ int eval_token_type(char *buffer){
 
 //retorna los dos primeros caracteres del token que identifican su tipo
 char *get_token_type(char *buffer){
-	char *ty_buffer = malloc(3);
+	
+	char *ty_buffer = malloc(4*sizeof(char));
+	
 	int ty_buffer_ptr = 0;
 	char *end;
 	for(int i = 0; i < strlen(buffer); i++){
@@ -609,9 +683,9 @@ char *get_token_type(char *buffer){
 }
 
 //funcion util para identificar el tipo de dato al que se refiere una keyword
-char *get_token_data_type(char *buffer, struct Tabla_s *tabla){
+char *get_token_value(char *buffer, struct Tabla_s *tabla){
 	int id = get_token_id(buffer);
-	char *str_aux = malloc(3);
+	char *str_aux = malloc(4 * sizeof(char));
 	for(int i = 0; i < 2; i++){
 		str_aux[i] = tabla->atributos[id-1]->valor[i];
 	}
@@ -624,7 +698,7 @@ char *get_token_data_type(char *buffer, struct Tabla_s *tabla){
 
 //retorna los caracteres numéricos del token, que hacen referencia a su ID en la tabla
 int get_token_id(char *buffer){
-	char *id_buffer = malloc(4);
+	char *id_buffer = malloc(5 * sizeof(char));
 	int id_buffer_ptr = 0;
 	char *end;
 	for(int i = 0; i < strlen(buffer); i++){
@@ -634,5 +708,124 @@ int get_token_id(char *buffer){
 	int aux = (int)strtol(id_buffer, &end, 10); 
 	free(id_buffer);
 	return aux;
+}
+
+// lee la expresión y la convierte a postorden, la almacena en una cadena separada por espacios.
+char *eval_expr(char buffer[CHAR_MAX][5], int buffer_ptr, struct Tabla_s *tabla){ 
+	char *salida = malloc(254 * sizeof(char));
+	salida[0] = '\0';
+	struct Stack *pila = createStack();
+	for(int i = 0; i < buffer_ptr; i++){
+		//printf("%s ", buffer[i]);
+ 		int token_type = eval_token_type(buffer[i]);
+		switch(token_type){
+			case 1:
+				if( isEmpty(pila) || strcmp(peek(pila),"PO") == 0 || 
+					eval_pres(buffer[i],tabla) > eval_pres(peek(pila),tabla)){
+					push(pila,buffer[i]);
+					break;
+				}
+				if(strcmp(buffer[i], peek(pila)) == 0){
+					if(strcmp("EXP", get_token_value(buffer[i], tabla)) == 0){
+						push(pila,buffer[i]);
+						break;
+					} 
+					else {
+						strcat(salida, pop(pila));
+						strcat(salida, " ");
+					}
+				}
+				while(!isEmpty(pila) && strcmp(peek(pila),"PO") != 0 && 
+					eval_pres(peek(pila),tabla) >= eval_pres(buffer[i],tabla)){
+					strcat(salida, pop(pila));
+					strcat(salida, " ");
+				}
+				push(pila, buffer[i]);
+				break;
+			case 2:
+			case 4:
+				strcat(salida,buffer[i]);  
+				strcat(salida," "); //:p
+				break;
+			case 5:
+				if(strcmp(buffer[i],"PO") == 0) push(pila,"PO");
+				else{
+					while(true){
+						char aux[5] = "";
+						strcpy(aux,pop(pila));
+						if(strcmp(aux,"PO") == 0) break;
+						else {
+							strcat(salida,aux);
+							strcat(salida, " ");
+						}
+						if(isEmpty(pila)){
+							printf("\nERROR: Parentesis disparejos en la expresion, falta '('");
+							return NULL;				
+						}
+					}
+				}
+				break;
+			default: break;//error
+		}
+	}
+	while(!isEmpty(pila)){
+		char aux[5] = "";
+		strcpy(aux,pop(pila));
+		if(strcmp(aux,"PO") == 0) {
+			printf("\nERROR: Parentesis disparejos en la expresion, falta ')'");
+			return NULL;
+		}
+		else {
+			strcat(salida,aux);
+			strcat(salida, " ");
+		}
+	}
+	free(pila);
+	char *aux = procesar_expr(salida,tabla);
+	free(salida);
+	return aux;
+}
+
+//recibe un token de operador y retorna un entero según su nivel de presedencia
+//incluye todos los operadores reconocidos
+int eval_pres(char *buffer, struct Tabla_s *tabla){
+	char type[4] = "";
+	strcpy(type,get_token_value(buffer,tabla));
+	if(strcmp("NOT",type) == 0) return 10; // '-' unario
+	else if(strcmp("EXP",type) == 0) return 9;
+	else if(strstr("MULDIVMOD",type) != NULL) return 8;
+	else if(strstr("ADDSUS",type) != NULL) return 7;
+	else if(strstr("RIRE",type) != NULL) return 6;
+	else if(strstr("LTMTMELE",type) != NULL) return 5;
+	else if(strstr("EQUNEQ",type) != NULL) return 4;
+	else if(strcmp("AND",type) == 0) return 3;
+	else if(strcmp("OR",type) == 0) return 2;
+	else if(strcmp("AS",type) == 0) return 1;
+}
+
+//convierte la cadena a preorden sustituye el token de op por su valor
+char *procesar_expr(char *expr, struct Tabla_s *tabla){
+	char *output = malloc(strlen(expr) * 2* sizeof(char));
+	output[0] = '\0';
+	struct Stack *pila = createStack();
+	char* context = NULL;
+	char* token = strtok(expr, " ");
+	while (token != NULL){
+		//printf("\n%s",token);
+		if(eval_token_type(token) == 4 || eval_token_type(token) == 2) push(pila,token);
+		else{
+			char aux[70] = ""; 
+			char aux1[30] = "";
+			char aux2[30] = "";
+			strcpy(aux1,pop(pila));
+			strcpy(aux2,pop(pila));
+			snprintf(aux,sizeof(aux),"%s %s %s", get_token_value(token, tabla), aux2, aux1);
+			push(pila,aux);
+		}
+    	token = strtok(NULL, " ");
+	}
+	strcpy(output,pop(pila));
+	free(pila);
+	return output; 
 }
 

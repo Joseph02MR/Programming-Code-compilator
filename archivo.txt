@@ -1,35 +1,14 @@
 string :esp = "0";
 string : cadena = "asdf\n";
 
-#
-int:a = 3;
+int:abuba = ((((3))));
+
+char:aux = 'a';
+float:p = (3.3)+ 3.4*(2.5+5.2);
+int:b = 1;
+int:z = 3;
 int:i = -2;
-i= -1;
-char:car='a';
-int: num=2;
-float:PI = 3.1416;
-#
+i= z+1 * b+2;
 
-esp = "a", cadena = "kek";
-float:a = 3.0, b=4.5,c = 3.14;
+int:e = 3++4;
 
-#
-fun print (valor : int) : int{
-	return valor + valor;
-}
-#
-#
-fun:int main () {
-	float:PI = 3.1416;
-	
-	int : contador = 1;
-	while (contador <= 100){
-	    print(contador);
-	}
-	
-	for (int:contador2 in 1 .. 10){
-	    print( contador2);
-	}
-	return 0;
-}
-#
